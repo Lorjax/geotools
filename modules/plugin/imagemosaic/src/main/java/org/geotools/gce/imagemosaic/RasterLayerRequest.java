@@ -1009,6 +1009,10 @@ public class RasterLayerRequest {
         return maximumNumberOfGranules;
     }
 
+    public void setMaximumNumberOfGranules(int numberOfGranules) {
+        this.maximumNumberOfGranules = numberOfGranules;
+    }
+
     public FootprintBehavior getFootprintBehavior() {
         return footprintBehavior;
     }

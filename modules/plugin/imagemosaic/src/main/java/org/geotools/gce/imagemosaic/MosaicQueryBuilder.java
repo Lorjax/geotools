@@ -24,10 +24,13 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.geotools.coverage.grid.io.GridCoverage2DReader;
 import org.geotools.coverage.util.FeatureUtilities;
 import org.geotools.data.Query;
 import org.geotools.filter.SortByImpl;
+import org.geotools.filter.text.cql2.CQL;
 import org.geotools.gce.imagemosaic.catalog.GranuleCatalog;
 import org.geotools.geometry.jts.ReferencedEnvelope;
 import org.geotools.renderer.crs.ProjectionHandler;
@@ -62,6 +65,49 @@ class MosaicQueryBuilder {
         handleAdditionalFilters(query);
         handleSortByClause(query);
         handleMultiThreadedLoading(query);
+
+        String filterString = request.getFilter().toString();
+        int numberOfBandsRequsted = 0;
+        Pattern p = Pattern.compile("band");
+        Matcher m = p.matcher(filterString);
+        while (m.find()) {
+            numberOfBandsRequsted++;
+        }
+
+        if (request.getMaximumNumberOfGranules() == numberOfBandsRequsted) {
+            LOGGER.log(
+                    Level.WARNING,
+                    "First try: maximumNumberOfGranules ("
+                            + request.getMaximumNumberOfGranules()
+                            + ") matches the numberOfBandsRequested ("
+                            + numberOfBandsRequsted
+                            + "), will introduce ST_CONTAINS");
+            String filterExp =
+                    String.format(
+                            "CONTAINS(the_geom, POLYGON((%1$s %2$s, %3$s %2$s, %3$s %4$s, %1$s %4$s, %1$s %2$s)))",
+                            queryBBox.getMinX(),
+                            queryBBox.getMinY(),
+                            queryBBox.getMaxX(),
+                            queryBBox.getMaxY());
+            LOGGER.log(Level.WARNING, "Producing filter: " + filterExp);
+            try {
+                final Filter withinFilter = CQL.toFilter(filterExp);
+                query.setFilter(
+                        FeatureUtilities.DEFAULT_FILTER_FACTORY.and(
+                                query.getFilter(), withinFilter));
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "error while parsing filter CQL");
+                throw new IOException("Cannot generate additional filter!");
+            }
+        } else {
+            LOGGER.log(
+                    Level.WARNING,
+                    "Second try: maximumNumberOfGranules ("
+                            + request.getMaximumNumberOfGranules()
+                            + ") DOESN'T match the numberOfBandsRequested ("
+                            + numberOfBandsRequsted
+                            + "), , will NOT introduce ST_CONTAINS");
+        }
 
         return query;
     }

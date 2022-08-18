@@ -41,7 +41,6 @@ import org.geotools.coverage.processing.Operations;
 import org.geotools.coverage.util.CoverageUtilities;
 import org.geotools.data.Query;
 import org.geotools.gce.imagemosaic.GranuleDescriptor;
-import org.geotools.gce.imagemosaic.MergeBehavior;
 import org.geotools.gce.imagemosaic.MosaicElement;
 import org.geotools.gce.imagemosaic.Mosaicker;
 import org.geotools.gce.imagemosaic.RasterLayerRequest;
@@ -405,7 +404,10 @@ class ReprojectingSubmosaicProducer extends BaseSubmosaicProducer {
         @Override
         public List<MosaicElement> createMosaic() throws IOException {
             final MosaicElement mosaic =
-                    (new Mosaicker(this.rasterLayerResponse, collectGranules(), MergeBehavior.FLAT))
+                    (new Mosaicker(
+                                    this.rasterLayerResponse,
+                                    collectGranules(),
+                                    this.rasterLayerResponse.getRequest().getMergeBehavior()))
                             .createMosaic(false, true);
             if (mosaic == null) {
                 return Collections.emptyList();

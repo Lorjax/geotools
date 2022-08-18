@@ -305,6 +305,17 @@ public class Mosaicker {
         }
 
         // execute mosaic
+        LOGGER.log(
+                Level.WARNING,
+                "Vor mergeBehavior.process: Laenge inputs: "
+                        + sources.length
+                        + " Modus mergeBehavior: "
+                        + mergeBehavior.name());
+        LOGGER.log(
+                Level.WARNING,
+                "MergeBehaviour aus Request"
+                        + rasterLayerResponse.getRequest().getMergeBehavior().toString());
+
         final RenderedImage mosaic =
                 mergeBehavior.process(
                         sources,
@@ -319,6 +330,11 @@ public class Mosaicker {
 
         Object property = mosaic.getProperty("ROI");
         ROI overallROI = (property instanceof ROI) ? (ROI) property : null;
+
+        LOGGER.log(
+                Level.WARNING,
+                "Nach mergeBehavior.process: Anz Baender mosaic: "
+                        + mosaic.getSampleModel().getNumBands());
 
         if (rasterMask != null) {
             if (overallROI == null) {

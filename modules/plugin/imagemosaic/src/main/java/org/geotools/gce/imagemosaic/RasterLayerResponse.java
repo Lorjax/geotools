@@ -46,6 +46,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.imageio.ImageReadParam;
 import javax.measure.Unit;
 import javax.media.jai.ImageLayout;
@@ -658,8 +660,27 @@ public class RasterLayerResponse {
             initExcessGranuleRemover();
 
             // === create query and basic BBOX filtering
+            // request.setMaximumNumberOfGranules(1);
+            // At first, let's see how many bands are requested by looking at the filter provided.
+            String filterString = request.getFilter().toString();
+            int numberOfBandsRequsted = 0;
+            Pattern p = Pattern.compile("band");
+            Matcher m = p.matcher(filterString);
+            while (m.find()) {
+                numberOfBandsRequsted++;
+            }
+
+            // The first try is a naive one:numberOfBandsRequsted
+            //
+            // If our QueryBbox is completly within a given S2-tile, we should be able to retrieve
+            // any entries from the DB if a ST_CONTAINS filter is present.
+            // This ST_CONTAINS will be added, if the bands mentioned in the provided filter match
+            // the
+            // amount of granules to load.
+            request.setMaximumNumberOfGranules(numberOfBandsRequsted);
+            LOGGER.log(Level.WARNING, "vorher: " + request.getMaximumNumberOfGranules());
             MosaicQueryBuilder queryBuilder = new MosaicQueryBuilder(request, queryBBox);
-            final Query query = queryBuilder.build();
+            Query query = queryBuilder.build();
 
             // === collect granules
             List<SubmosaicProducer> producers =
@@ -668,12 +689,40 @@ public class RasterLayerResponse {
             for (SubmosaicProducer producer : producers) {
                 producer.init(query);
             }
-            final MosaicProducer visitor = new MosaicProducer(producers);
+            MosaicProducer visitor = new MosaicProducer(producers);
             rasterManager.getGranuleDescriptors(query, visitor);
+
+            // now, let's see if we got any entries back from the db.
+            // If so, we are done and happy to load only a few images.
+            // If not, our Bbox is probably not within a S2-tile and we therefore have to get rid of
+            // our
+            // ST_CONTAINS filter. In addition, we now have to load four times the data since the
+            // bbox could be
+            // located on the intersection of up to four S2-tiles.
+            if (visitor.granulesNumber == 0) {
+                // Second try
+                //
+                // well, we got nothing from the db, let's query the db again
+                request.setMaximumNumberOfGranules(numberOfBandsRequsted * 4);
+                LOGGER.log(
+                        Level.WARNING,
+                        "BIER Could not find any match in db, will omit ST_CONTAINS and increase maximumGranules to "
+                                + request.getMaximumNumberOfGranules());
+                queryBuilder = new MosaicQueryBuilder(request, queryBBox);
+                query = queryBuilder.build();
+                producers =
+                        submosaicProducerFactory.createProducers(
+                                this.getRequest(), this.getRasterManager(), this, false);
+                for (SubmosaicProducer producer : producers) {
+                    producer.init(query);
+                }
+                visitor = new MosaicProducer(producers);
+                rasterManager.getGranuleDescriptors(query, visitor);
+            }
 
             // get those granules and create the final mosaic
             heterogeneousCRS = visitor.heterogeneousCRS;
-            MosaicOutput returnValue = visitor.produce();
+            MosaicOutput returnValue = visitor.produce(); // will finally load the granules
 
             //
             // Did we actually load anything?? Notice that it might happen that
@@ -699,42 +748,49 @@ public class RasterLayerResponse {
                 return returnValue;
             }
 
-            if (visitor.granulesNumber == 0) {
-                // Redo the query without filter to check whether we got no granules due
-                // to a filter. In that case we need to return null
-                // Notice that we are using a dryRun visitor to make sure we don't
-                // spawn any loading tasks, we also ensure we get only 1 feature at most
-                // to make this blazing fast
-                LOGGER.fine("We got no granules, let's do a dry run with no filters");
-                List<SubmosaicProducer> collectors =
-                        submosaicProducerFactory.createProducers(
-                                this.getRequest(), this.getRasterManager(), this, true);
-                for (SubmosaicProducer producer : collectors) {
-                    producer.init(query);
-                }
-                final MosaicProducer dryRunVisitor = new MosaicProducer(true, collectors);
-                final Utils.BBOXFilterExtractor bboxExtractor = new Utils.BBOXFilterExtractor();
-                query.getFilter().accept(bboxExtractor, null);
-                query.setFilter(
-                        FeatureUtilities.DEFAULT_FILTER_FACTORY.bbox(
-                                FeatureUtilities.DEFAULT_FILTER_FACTORY.property(
-                                        rasterManager
-                                                .getGranuleCatalog()
-                                                .getType(rasterManager.getTypeName())
-                                                .getGeometryDescriptor()
-                                                .getName()),
-                                bboxExtractor.getBBox()));
-                query.setMaxFeatures(1);
-                query.setSortBy(null);
-                rasterManager.getGranuleDescriptors(query, dryRunVisitor);
-                if (dryRunVisitor.granulesNumber > 0) {
-                    LOGGER.fine(
-                            "Dry run got a target granule, returning null as the additional filters did filter all the granules out");
-                    // It means the previous lack of granule was due to a filter excluding all the
-                    // results. Then we return null
-                    return null;
-                }
-            }
+            //            if (visitor.granulesNumber == 0) {
+            //                // Redo the query without filter to check whether we got no granules
+            // due
+            //                // to a filter. In that case we need to return null
+            //                // Notice that we are using a dryRun visitor to make sure we don't
+            //                // spawn any loading tasks, we also ensure we get only 1 feature at
+            // most
+            //                // to make this blazing fast
+            //                LOGGER.fine("We got no granules, let's do a dry run with no filters");
+            //                List<SubmosaicProducer> collectors =
+            //                        submosaicProducerFactory.createProducers(
+            //                                this.getRequest(), this.getRasterManager(), this,
+            // true);
+            //                for (SubmosaicProducer producer : collectors) {
+            //                    producer.init(query);
+            //                }
+            //                final MosaicProducer dryRunVisitor = new MosaicProducer(true,
+            // collectors);
+            //                final Utils.BBOXFilterExtractor bboxExtractor = new
+            // Utils.BBOXFilterExtractor();
+            //                query.getFilter().accept(bboxExtractor, null);
+            //                query.setFilter(
+            //                        FeatureUtilities.DEFAULT_FILTER_FACTORY.bbox(
+            //                                FeatureUtilities.DEFAULT_FILTER_FACTORY.property(
+            //                                        rasterManager
+            //                                                .getGranuleCatalog()
+            //                                                .getType(rasterManager.getTypeName())
+            //                                                .getGeometryDescriptor()
+            //                                                .getName()),
+            //                                bboxExtractor.getBBox()));
+            //                query.setMaxFeatures(1);
+            //                query.setSortBy(null);
+            //                rasterManager.getGranuleDescriptors(query, dryRunVisitor);
+            //                if (dryRunVisitor.granulesNumber > 0) {
+            //                    LOGGER.fine(
+            //                            "Dry run got a target granule, returning null as the
+            // additional filters did filter all the granules out");
+            //                    // It means the previous lack of granule was due to a filter
+            // excluding all the
+            //                    // results. Then we return null
+            //                    return null;
+            //                }
+            //            }
 
             // do we return a null (outside of the coverage) or a blank? The choice is "hard" as we
             // might be in a hole of the coverage and not know it
