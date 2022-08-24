@@ -189,7 +189,6 @@ public enum MergeBehavior {
                 MosaicType mosaicType,
                 RenderingHints hints) {
             // checks
-            // System.out.println("Methode: NDVI");
             if (sources.length == 1) {
                 return FLAT.process(
                         sources,
@@ -301,13 +300,6 @@ public enum MergeBehavior {
                 // Finally, we end up with two images which will be stacked and returned.
 
                 // getting the inputs from the source arrays
-                // RenderedImage[] sourcesOddBands = new RenderedImage[] {sources[0], sources[0 +
-                // 2]};
-                // RenderedImage[] sourcesEvenBands = new RenderedImage[] {sources[0 + 1], sources[0
-                // + 3]};
-                // ROI[] roiOddBands = new ROI[] {sourceROI[0], sourceROI[0 + 2]};
-                // ROI[] roiEvenBands = new ROI[] {sourceROI[0 + 1], sourceROI[0 + 3]};
-
                 RenderedImage[] sourcesOddBands = new RenderedImage[sources.length / 2];
                 RenderedImage[] sourcesEvenBands = new RenderedImage[sources.length / 2];
                 ROI[] roiOddBands = new ROI[sources.length / 2];
@@ -333,15 +325,7 @@ public enum MergeBehavior {
                     }
                 }
 
-                System.out.println("sourcesOddBands: " + sourcesOddBands.length + " Data:");
-                for (int k = 0; k < sourcesOddBands.length; k++) {
-                    System.out.println(
-                            "Odd: "
-                                    + sourcesOddBands[k].getWidth()
-                                    + " and Even: "
-                                    + sourcesEvenBands[k].getWidth());
-                }
-
+                // everything is sorted, let's start the actual mosaicing
                 RenderedImage mosaicOddBands =
                         worker.mosaic(
                                         sourcesOddBands,
@@ -364,9 +348,6 @@ public enum MergeBehavior {
                 mosaicedSources[0] = mosaicOddBands;
                 mosaicedSources[1] = mosaicEvenBands;
 
-                System.out.println("mosaicedSources Band 1 " + mosaicedSources[0].getWidth());
-                System.out.println("mosaicedSources Band 2 " + mosaicedSources[1].getWidth());
-
                 // okay we have the mosaics ready, now let's stack them
                 worker.setImage(mosaicedSources[0]);
 
@@ -375,7 +356,6 @@ public enum MergeBehavior {
                     worker.addBand(mosaicedSources[i], false);
                 }
                 // return final image
-                System.out.println("Kurz vor return - Anzahl Bands: " + worker.getNumBands());
                 return worker.getRenderedImage();
 
             } else {

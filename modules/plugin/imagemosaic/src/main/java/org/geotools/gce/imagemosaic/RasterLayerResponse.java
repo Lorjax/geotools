@@ -660,7 +660,6 @@ public class RasterLayerResponse {
             initExcessGranuleRemover();
 
             // === create query and basic BBOX filtering
-            // request.setMaximumNumberOfGranules(1);
             // At first, let's see how many bands are requested by looking at the filter provided.
             String filterString = request.getFilter().toString();
             int numberOfBandsRequsted = 0;
@@ -675,8 +674,7 @@ public class RasterLayerResponse {
             // If our QueryBbox is completly within a given S2-tile, we should be able to retrieve
             // any entries from the DB if a ST_CONTAINS filter is present.
             // This ST_CONTAINS will be added, if the bands mentioned in the provided filter match
-            // the
-            // amount of granules to load.
+            // the amount of granules to load.
             request.setMaximumNumberOfGranules(numberOfBandsRequsted);
             LOGGER.log(Level.WARNING, "vorher: " + request.getMaximumNumberOfGranules());
             MosaicQueryBuilder queryBuilder = new MosaicQueryBuilder(request, queryBBox);
@@ -695,10 +693,8 @@ public class RasterLayerResponse {
             // now, let's see if we got any entries back from the db.
             // If so, we are done and happy to load only a few images.
             // If not, our Bbox is probably not within a S2-tile and we therefore have to get rid of
-            // our
-            // ST_CONTAINS filter. In addition, we now have to load four times the data since the
-            // bbox could be
-            // located on the intersection of up to four S2-tiles.
+            // our ST_CONTAINS filter. In addition, we now have to load four times the data since the
+            // bbox could be located on the intersection of up to four S2-tiles.
             if (visitor.granulesNumber == 0) {
                 // Second try
                 //
