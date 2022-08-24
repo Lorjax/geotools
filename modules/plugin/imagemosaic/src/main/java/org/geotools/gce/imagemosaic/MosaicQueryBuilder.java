@@ -53,11 +53,13 @@ class MosaicQueryBuilder {
     RasterLayerRequest request;
     RasterManager rasterManager;
     ReferencedEnvelope queryBBox;
+    PropertyName geometryProperty;
 
     public MosaicQueryBuilder(RasterLayerRequest request, ReferencedEnvelope bbox) {
         this.request = request;
         this.rasterManager = request.getRasterManager();
         this.queryBBox = bbox;
+        this.geometryProperty = null;
     }
 
     public Query build() throws TransformException, IOException, FactoryException {
@@ -65,53 +67,71 @@ class MosaicQueryBuilder {
         handleAdditionalFilters(query);
         handleSortByClause(query);
         handleMultiThreadedLoading(query);
-
-        String filterString = request.getFilter().toString();
-        int numberOfBandsRequsted = 0;
-        Pattern p = Pattern.compile("band");
-        Matcher m = p.matcher(filterString);
-        while (m.find()) {
-            numberOfBandsRequsted++;
-        }
-
-        if (request.getMaximumNumberOfGranules() == numberOfBandsRequsted) {
-            LOGGER.log(
-                    Level.WARNING,
-                    "First try: maximumNumberOfGranules ("
-                            + request.getMaximumNumberOfGranules()
-                            + ") matches the numberOfBandsRequested ("
-                            + numberOfBandsRequsted
-                            + "), will introduce ST_CONTAINS");
-            String filterExp =
-                    String.format(
-                            "CONTAINS(the_geom, POLYGON((%1$s %2$s, %3$s %2$s, %3$s %4$s, %1$s %4$s, %1$s %2$s)))",
-                            queryBBox.getMinX(),
-                            queryBBox.getMinY(),
-                            queryBBox.getMaxX(),
-                            queryBBox.getMaxY());
-            LOGGER.log(Level.WARNING, "Producing filter: " + filterExp);
-            try {
-                final Filter withinFilter = CQL.toFilter(filterExp);
-                query.setFilter(
-                        FeatureUtilities.DEFAULT_FILTER_FACTORY.and(
-                                query.getFilter(), withinFilter));
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "error while parsing filter CQL");
-                throw new IOException("Cannot generate additional filter!");
-            }
-        } else {
-            LOGGER.log(
-                    Level.WARNING,
-                    "Second try: maximumNumberOfGranules ("
-                            + request.getMaximumNumberOfGranules()
-                            + ") DOESN'T match the numberOfBandsRequested ("
-                            + numberOfBandsRequsted
-                            + "), , will NOT introduce ST_CONTAINS");
-        }
+        handleContainsToggle(query);
 
         return query;
     }
 
+    /**
+     * Adds an ST_CONTAINS clause to the query if the MergeBehaviour is 'NDVI'
+     * @param query The query to alter
+     */
+    private void handleContainsToggle(Query query) throws IOException {
+        if(this.request.getMergeBehavior().name().equals("NDVI")) {
+            // how many bands are requested by default?
+            // This is determined by the default value of the layer's 'filter' setting
+            // e.g. 'band IN (4,8)' -> 2
+            String filterString = this.request.getFilter().toString();
+            int numberOfBandsRequsted = 0;
+            Pattern p = Pattern.compile("band");
+            Matcher m = p.matcher(filterString);
+            while (m.find()) {
+                numberOfBandsRequsted++;
+            }
+
+            // we now know how many bands we have to retrieve in the best case.
+            
+            // let's get the name of the geometry attribute
+            if (request.getMaximumNumberOfGranules() == numberOfBandsRequsted) {
+                LOGGER.log(
+                        Level.WARNING,
+                        "First try: maximumNumberOfGranules ("
+                                + request.getMaximumNumberOfGranules()
+                                + ") matches the numberOfBandsRequested ("
+                                + numberOfBandsRequsted
+                                + "), will introduce ST_CONTAINS");
+                String filterExp =
+                        String.format(
+                                "CONTAINS(%5$s, POLYGON((%1$s %2$s, %3$s %2$s, %3$s %4$s, %1$s %4$s, %1$s %2$s)))",
+                                queryBBox.getMinX(),
+                                queryBBox.getMinY(),
+                                queryBBox.getMaxX(),
+                                queryBBox.getMaxY(),
+                                this.geometryProperty.getPropertyName());
+
+                LOGGER.log(Level.WARNING, "Producing filter: " + filterExp);
+                try {
+                    final Filter withinFilter = CQL.toFilter(filterExp);
+                    query.setFilter(
+                            FeatureUtilities.DEFAULT_FILTER_FACTORY.and(
+                                    query.getFilter(), withinFilter));
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "error while parsing filter CQL");
+                    throw new IOException("Cannot generate additional filter!");
+                }
+            } else {
+                LOGGER.log(
+                        Level.WARNING,
+                        "Second try: maximumNumberOfGranules ("
+                                + request.getMaximumNumberOfGranules()
+                                + ") DOESN'T match the numberOfBandsRequested ("
+                                + numberOfBandsRequsted
+                                + "), , will NOT introduce ST_CONTAINS");
+            }
+        }
+        
+    }
+    
     private void handleMultiThreadedLoading(Query query) {
         if (request.isMultithreadingAllowed()) {
             ImageMosaicReader reader = request.getRasterManager().getParentReader();
@@ -145,6 +165,7 @@ class MosaicQueryBuilder {
                                     .getType(typeName)
                                     .getGeometryDescriptor()
                                     .getName());
+            this.geometryProperty = geometryProperty;
             if (request.isHeterogeneousGranules() && queryBBox != null) {
                 ProjectionHandler handler =
                         ProjectionHandlerFinder.getHandler(
